@@ -12,7 +12,8 @@ Param
     [Parameter(Mandatory = $false)]
     [string] $PackageVersion,
     [Parameter(Mandatory = $false)]
-    [string] $Mode
+    [string] $Mode,
+    $GitHubPrBody, $GitHubPrTitle
 )
 
 if ($help) {
@@ -1567,160 +1568,6 @@ Function Read-LocaleMetadata {
     } until ($script:_returnValue.StatusCode -eq [ReturnValue]::Success().StatusCode)
 }
 
-# Requests the user to answer the prompts found in the winget-pkgs pull request template
-# Uses this template and responses to create a PR
-Function Read-PRBody {
-    $PrBodyContent = Get-Content $args[0]
-    ForEach ($_line in ($PrBodyContent | Where-Object { $_ -like '-*[ ]*' })) {
-        $_showMenu = $true
-        switch -Wildcard ( $_line ) {
-            '*CLA*' {
-                if ($ScriptSettings.SignedCLA -eq 'true') {
-                    $PrBodyContentReply += @($_line.Replace('[ ]', '[X]'))
-                    $_showMenu = $false
-                } else {
-                    $_menu = @{
-                        Prompt        = 'Have you signed the Contributor License Agreement (CLA)?'
-                        Entries       = @('[Y] Yes'; '*[N] No')
-                        HelpText      = 'Reference Link: https://cla.opensource.microsoft.com/microsoft/winget-pkgs'
-                        HelpTextColor = ''
-                        DefaultString = 'N'
-                    }
-                }
-            }
-
-            '*open `[pull requests`]*' {
-                $_menu = @{
-                    Prompt        = "Have you checked that there aren't other open pull requests for the same manifest update/change?"
-                    Entries       = @('[Y] Yes'; '*[N] No')
-                    HelpText      = 'Reference Link: https://github.com/microsoft/winget-pkgs/pulls'
-                    HelpTextColor = ''
-                    DefaultString = 'N'
-                }
-            }
-
-            '*winget validate*' {
-                if ($?) {
-                    $PrBodyContentReply += @($_line.Replace('[ ]', '[X]'))
-                    $_showMenu = $false
-                } else {
-                    $_menu = @{
-                        Prompt        = "Have you validated your manifest locally with 'winget validate --manifest <path>'?"
-                        Entries       = @('[Y] Yes'; '*[N] No')
-                        HelpText      = 'Automatic manifest validation failed. Check your manifest and try again'
-                        HelpTextColor = 'Red'
-                        DefaultString = 'N'
-                    }
-                }
-            }
-
-            '*tested your manifest*' {
-                if ($script:SandboxTest -eq '0') {
-                    $PrBodyContentReply += @($_line.Replace('[ ]', '[X]'))
-                    $_showMenu = $false
-                } else {
-                    $_menu = @{
-                        Prompt        = "Have you tested your manifest locally with 'winget install --manifest <path>'?"
-                        Entries       = @('[Y] Yes'; '*[N] No')
-                        HelpText      = 'You did not test your Manifest in Windows Sandbox previously.'
-                        HelpTextColor = 'Red'
-                        DefaultString = 'N'
-                    }
-                }
-            }
-
-            '*schema*' {
-                $_Match = ($_line | Select-String -Pattern 'https://+.+(?=\))').Matches.Value
-                $_menu = @{
-                    Prompt        = $_line.TrimStart('- [ ]') -replace '\[|\]|\(.+\)', ''
-                    Entries       = @('[Y] Yes'; '*[N] No')
-                    HelpText      = "Reference Link: $_Match"
-                    HelpTextColor = ''
-                    DefaultString = 'N'
-                }
-            }
-
-            Default {
-                $_menu = @{
-                    Prompt        = $_line.TrimStart('- [ ]')
-                    Entries       = @('[Y] Yes'; '*[N] No')
-                    HelpText      = ''
-                    HelpTextColor = ''
-                    DefaultString = 'N'
-                }
-            }
-        }
-
-        if ($_showMenu) {
-            switch ( Invoke-KeypressMenu -Prompt $_menu['Prompt'] -Entries $_menu['Entries'] -DefaultString $_menu['DefaultString'] -HelpText $_menu['HelpText'] -HelpTextColor $_menu['HelpTextColor']) {
-                'Y' { $PrBodyContentReply += @($_line.Replace('[ ]', '[X]')) }
-                default { $PrBodyContentReply += @($_line) }
-            }
-        }
-    }
-
-    # Request user to enter if there were any issues resolved by the PR
-    $_menu = @{
-        entries       = @('[Y] Yes'; '*[N] No')
-        Prompt        = 'Does this pull request resolve any issues?'
-        DefaultString = 'N'
-    }
-    switch ( Invoke-KeypressMenu -Prompt $_menu['Prompt'] -Entries $_menu['Entries'] -DefaultString $_menu['DefaultString']) {
-        'Y' {
-            # If there were issues resolved by the PR, request user to enter them
-            Write-Host
-            Write-Host "Enter issue number. For example`: 21983, 43509"
-            $ResolvedIssues = Read-Host -Prompt 'Resolved Issues' | UniqueItems
-            $PrBodyContentReply += @('')
-
-            # Validate each of the issues entered by checking the URL to ensure it returns a 200 status code
-            Foreach ($i in ($ResolvedIssues.Split(',').Trim())) {
-                if ($i.Contains('#')) {
-                    $_UrlParameters = $i.Split('#')
-                    switch ($_UrlParameters.Count) {
-                        2 {
-                            if ([string]::IsNullOrWhiteSpace($_urlParameters[0])) {
-                                $_checkedURL = "https://github.com/microsoft/winget-pkgs/issues/$($_urlParameters[1])"
-                            } else {
-                                $_checkedURL = "https://github.com/$($_urlParameters[0])/issues/$($_urlParameters[1])"
-                            }
-                        }
-                        default {
-                            Write-Host -ForegroundColor 'Red' "Invalid Issue: $i"
-                            continue
-                        }
-                    }
-                    $_responseCode = Test-Url $_checkedURL
-                    if ($_responseCode -ne 200) {
-                        Write-Host -ForegroundColor 'Red' "Invalid Issue: $i"
-                        continue
-                    }
-                    $PrBodyContentReply += @("Resolves $i")
-                } else {
-                    $_checkedURL = "https://github.com/microsoft/winget-pkgs/issues/$i"
-                    $_responseCode = Test-Url $_checkedURL
-                    if ($_responseCode -ne 200) {
-                        Write-Host -ForegroundColor 'Red' "Invalid Issue: $i"
-                        continue
-                    }
-                    $PrBodyContentReply += @("* Resolves #$i")
-                }
-            }
-        }
-        default { Write-Host }
-    }
-
-    # If we are removing a manifest, we need to include the reason
-    if ($CommitType -eq 'Remove') {
-        $PrBodyContentReply = @("## $($script:RemovalReason)"; '') + $PrBodyContentReply
-    }
-
-    # Write the PR using a temporary file
-    Set-Content -Path PrBodyFile -Value $PrBodyContentReply | Out-Null
-    gh pr create --body-file PrBodyFile -f
-    Remove-Item PrBodyFile
-}
-
 # Takes a comma separated list of values, converts it to an array object, and adds the result to a specified object-key
 Function Add-YamlListParameter {
     Param
@@ -2439,37 +2286,6 @@ Switch ($script:Option) {
     }
 
     'RemoveManifest' {
-        # Confirm the user is sure they know what they are doing
-        $_menu = @{
-            entries       = @("[Y] Remove $PackageIdentifier version $PackageVersion"; '*[N] Cancel')
-            Prompt        = 'Are you sure you want to continue?'
-            HelpText      = "Manifest Versions should only be removed when necessary`n"
-            HelpTextColor = 'Red'
-            DefaultString = 'N'
-        }
-        switch ( Invoke-KeypressMenu -Prompt $_menu['Prompt'] -Entries $_menu['Entries'] -DefaultString $_menu['DefaultString'] -HelpText $_menu['HelpText'] -HelpTextColor $_menu['HelpTextColor']) {
-            'Y' { Write-Host; continue }
-            default {
-                Write-Host;
-                [Threading.Thread]::CurrentThread.CurrentUICulture = $callingUICulture
-                [Threading.Thread]::CurrentThread.CurrentCulture = $callingCulture
-                exit 1
-            }
-        }
-
-        # Require that a reason for the deletion is provided
-        do {
-            Write-Host -ForegroundColor 'Red' $script:_returnValue.ErrorString()
-            Write-Host -ForegroundColor 'Green' -Object '[Required] Enter the reason for removing this manifest'
-            $script:RemovalReason = Read-Host -Prompt 'Reason' | TrimString
-            # Check the reason for validity. The length requirements are arbitrary, but they have been set to encourage concise yet meaningful reasons
-            if (Test-String $script:RemovalReason -MinLength 8 -MaxLength 128 -NotNull) {
-                $script:_returnValue = [ReturnValue]::Success()
-            } else {
-                $script:_returnValue = [ReturnValue]::LengthError(8, 128)
-            }
-        } until ($script:_returnValue.StatusCode -eq [ReturnValue]::Success().StatusCode)
-
         Remove-ManifestVersion $AppFolder
     }
 
@@ -2647,7 +2463,8 @@ if ($PromptSubmit -eq '0') {
         # Git branch names cannot start with `.` cannot contain any of {`..`, `\`, `~`, `^`, `:`, ` `, `?`, `@{`, `[`}, and cannot end with {`/`, `.lock`, `.`}
         $BranchName = $BranchName -replace '[\~,\^,\:,\\,\?,\@\{,\*,\[,\s]{1,}|[.lock|/|\.]*$|^\.{1,}|\.\.', ''
         git add "$((Resolve-Path "$gitTopLevel\manifests").Path)\*"
-        git commit -m "$CommitType`: $PackageIdentifier version $PackageVersion" --quiet
+        $CommitName = "$CommitType`: $PackageIdentifier version $PackageVersion"
+        git commit -m "$CommitName" --quiet
         git switch -c "$BranchName" --quiet
         git push --set-upstream origin "$BranchName" --quiet
 
@@ -2655,14 +2472,14 @@ if ($PromptSubmit -eq '0') {
         if (Get-Command 'gh.exe' -ErrorAction SilentlyContinue) {
             # Request the user to fill out the PR template
             if (Test-Path -Path "$gitTopLevel\.github\PULL_REQUEST_TEMPLATE.md") {
-                Read-PRBody (Resolve-Path "$gitTopLevel\.github\PULL_REQUEST_TEMPLATE.md").Path
+                gh pr create --body "$([string]::IsNullOrWhiteSpace($GitHubPrBody) ? 'null' : $GitHubPrBody)" --title "$([string]::IsNullOrWhiteSpace($GitHubPrTitle) ? $CommitName : $GitHubPrTitle)"
             } else {
                 while ([string]::IsNullOrWhiteSpace($SandboxScriptPath)) {
                     Write-Host
                     Write-Host -ForegroundColor 'Green' -Object 'PULL_REQUEST_TEMPLATE.md not found, input path'
                     $PRTemplate = Read-Host -Prompt 'PR Template' | TrimString
                 }
-                Read-PRBody "$PRTemplate"
+                gh pr create --body "$([string]::IsNullOrWhiteSpace($GitHubPrBody) ? 'null' : $GitHubPrBody)" --title "$([string]::IsNullOrWhiteSpace($GitHubPrTitle) ? $CommitName : $GitHubPrTitle)"
             }
         }
     }
