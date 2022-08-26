@@ -2462,9 +2462,10 @@ if ($PromptSubmit -eq '0') {
         $BranchName = "$PackageIdentifier-$PackageVersion-$UniqueBranchID"
         # Git branch names cannot start with `.` cannot contain any of {`..`, `\`, `~`, `^`, `:`, ` `, `?`, `@{`, `[`}, and cannot end with {`/`, `.lock`, `.`}
         $BranchName = $BranchName -replace '[\~,\^,\:,\\,\?,\@\{,\*,\[,\s]{1,}|[.lock|/|\.]*$|^\.{1,}|\.\.', ''
-        git add "$((Resolve-Path "$gitTopLevel\manifests").Path)\*"
+        git add --renormalize "$((Resolve-Path "$AppFolder").Path)\*"
         git commit -m "$CommitType`: $PackageIdentifier version $PackageVersion" --quiet
-        git switch -c "$BranchName" --quiet
+        git clean -fdx
+        git switch -c "$BranchName" --quiet --force
         git push --set-upstream origin "$BranchName" --quiet
 
         # If the user has the cli too
