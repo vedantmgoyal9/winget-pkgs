@@ -1,0 +1,36 @@
+name: Check Line Endings
+on:
+  push:
+    branches: 
+      - master
+  pull_request:
+    branches: 
+      - master
+    types:
+      - synchronize
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - uses: vedantmgoyal2009/CheckLineEndings-Trenly@master
+        id: line-endings
+
+      - name: Comment on PR if LF files are found
+        uses: actions/github-script@v5
+        if: steps.line-endings.outputs.LF != '[]' && github.event_name == 'pull_request'
+        with:
+          script: |
+            const files = JSON.parse('${{ steps.line-endings.outputs.LF }}');
+            let message = 'The following files have LF line endings:\n';
+            message += files.map(file => `- ${file}`).join('\n');
+            message += '\nPlease modify the files to use CRLF line endings.';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
