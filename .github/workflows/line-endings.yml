@@ -71,7 +71,7 @@ jobs:
               ).data
                 .filter((comment) => comment.user.login === 'github-actions[bot]')
                 .forEach((comment) => {
-                  github.rest.pulls.deleteReviewComment({
+                  await github.rest.pulls.deleteReviewComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     comment_id: comment.pull_request_review_id,
