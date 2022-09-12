@@ -62,13 +62,14 @@ jobs:
             // Comment on the PR if any files have LF line endings
             if (filesWithLfLineEndings.length > 0 && context.eventName === 'pull_request') {
               // Delete any previous comments to avoid spamming the PR
-              github.rest.pulls
-                .listReviewComments({
+              (
+                await github.rest.pulls.listReviewComments({
                   pull_number: context.issue.number,
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                 })
-                .data.filter((comment) => comment.user.login === 'github-actions[bot]')
+              ).data
+                .filter((comment) => comment.user.login === 'github-actions[bot]')
                 .forEach((comment) => {
                   github.rest.pulls.deleteReviewComment({
                     comment_id: comment.id,
