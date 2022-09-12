@@ -64,27 +64,28 @@ jobs:
               // Delete any previous comments to avoid spamming the PR
               (
                 await github.rest.pulls.listReviewComments({
-                  pull_number: context.issue.number,
                   owner: context.repo.owner,
                   repo: context.repo.repo,
+                  pull_number: context.issue.number,
                 })
               ).data
                 .filter((comment) => comment.user.login === 'github-actions[bot]')
                 .forEach((comment) => {
                   github.rest.pulls.deleteReviewComment({
-                    comment_id: comment.id,
                     owner: context.repo.owner,
                     repo: context.repo.repo,
+                    comment_id: comment.pull_request_review_id,
                   });
                 });
               // Comment on the PR
               github.rest.pulls.createReview({
-                pull_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
+                pull_number: context.issue.number,
                 body: `The following files have LF line endings:\n${filesWithLfLineEndings
                   .map((file) => `- ${file}`)
                   .join('\n')}\n\nPlease modify the files to use CRLF line endings.`,
                 event: 'REQUEST_CHANGES',
               });
             }
+
