@@ -1,4 +1,3 @@
-# some change
 name: Line Endings
 on:
   push:
@@ -68,6 +67,12 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: message,
-                event: 'REQUEST_CHANGES'
+                event: 'REQUEST_CHANGES',
+              });
+              github.rest.pulls.submitReview({
+                pull_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                review_id: requestChangesOnPrReview.id,
               });
             }
