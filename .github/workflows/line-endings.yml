@@ -1,10 +1,11 @@
+# some change
 name: Line Endings
 on:
   push:
-    branches: 
+    branches:
       - master
   pull_request:
-    branches: 
+    branches:
       - master
     types:
       - opened
@@ -20,11 +21,11 @@ jobs:
           script: |
             // Get changed files
             switch (context.eventName) {
-              case "push":
+              case 'push':
                 baseSha = context.payload.before;
                 headSha = context.payload.after;
                 break;
-              case "pull_request":
+              case 'pull_request':
                 baseSha = context.payload.pull_request.base.sha;
                 headSha = context.payload.pull_request.head.sha;
                 break;
@@ -44,36 +45,45 @@ jobs:
                   per_page: 100,
                 })
               ).data.files.flatMap((file) =>
-                file.status !== "removed" || file.status !== "renamed" ? file.filename : []
+                file.status !== 'removed' || file.status !== 'renamed' ? file.filename : []
               ),
             ];
             console.log(`Changed files: ${changedFiles}`);
             // Check if any of the changed files have LF line endings
             const filesWithLfLineEndings = [];
             for (file of changedFiles) {
-              var contents = require("fs").readFileSync(file, "utf8");
-              if (contents.search(/(?<!\r)\n/) > -1) { // Check for LF
+              var contents = require('fs').readFileSync(file, 'utf8');
+              // Check for LF
+              if (contents.search(/(?<!\r)\n/) > -1) {
                 filesWithLfLineEndings.push(file);
               }
             }
             console.log(`Files with LF line endings: ${filesWithLfLineEndings}`);
             // Comment on the PR if any files have LF line endings
             if (filesWithLfLineEndings.length > 0 && context.eventName === 'pull_request') {
-              let message = "The following files have LF line endings:\n";
-              message += filesWithLfLineEndings.map((file) => `- ${file}`).join("\n");
-              message += "\n\nPlease modify the files to use CRLF line endings.";
-              github.rest.pulls.submitReview({
-                pull_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                review_id: (github.rest.pulls.createReview({
+              // Delete any previous comments to avoid spamming the PR
+              github.rest.pulls
+                .listReviewComments({
                   pull_number: context.issue.number,
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  body: message,
-                  event: 'REQUEST_CHANGES',
-                })).id,
+                })
+                .data.filter((comment) => comment.user.login === 'github-actions[bot]')
+                .forEach((comment) => {
+                  github.rest.pulls.deleteReviewComment({
+                    comment_id: comment.id,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                  });
+                });
+              // Comment on the PR
+              github.rest.pulls.createReview({
+                pull_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `The following files have LF line endings:\n${filesWithLfLineEndings
+                  .map((file) => `- ${file}`)
+                  .join('\n')}\n\nPlease modify the files to use CRLF line endings.`,
                 event: 'REQUEST_CHANGES',
               });
             }
-
