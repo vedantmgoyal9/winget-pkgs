@@ -66,13 +66,14 @@ jobs:
                 pull_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: message,
+                review_id: (github.rest.pulls.createReview({
+                  pull_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: message,
+                  event: 'REQUEST_CHANGES',
+                })).id,
                 event: 'REQUEST_CHANGES',
               });
-              github.rest.pulls.submitReview({
-                pull_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                review_id: requestChangesOnPrReview.id,
-              });
             }
+
