@@ -63,10 +63,11 @@ jobs:
               let message = "The following files have LF line endings:\n";
               message += filesWithLfLineEndings.map((file) => `- ${file}`).join("\n");
               message += "\n\nPlease modify the files to use CRLF line endings.";
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
+              github.rest.pulls.submitReview({
+                pull_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: message,
+                event: 'REQUEST_CHANGES'
               });
             }
